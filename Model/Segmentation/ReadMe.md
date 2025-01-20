@@ -1,0 +1,1 @@
+stripped (necessary) mmseg blocks + Swin Transformer backbone
