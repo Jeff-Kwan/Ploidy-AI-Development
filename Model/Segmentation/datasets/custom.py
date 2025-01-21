@@ -2,14 +2,18 @@ import os
 import os.path as osp
 from functools import reduce
 
-import mmcv
+# import mmcv
 import numpy as np
-from mmcv.utils import print_log
+from mmcv_barebones.logging import print_log
 from terminaltables import AsciiTable
 from torch.utils.data import Dataset
 
 from core import eval_metrics
-from mmseg.utils import get_root_logger
+from mmcv_barebones.logging import get_root_logger
+from mmcv_barebones.path import scandir
+from mmcv_barebones.image_io import imread
+from mmcv_barebones.fileio import list_from_file
+from mmcv_barebones.misc import is_list_of
 from .builder import DATASETS
 from .pipelines import Compose
 
@@ -144,7 +148,7 @@ class CustomDataset(Dataset):
                         img_info['ann'] = dict(seg_map=seg_map)
                     img_infos.append(img_info)
         else:
-            for img in mmcv.scandir(img_dir, img_suffix, recursive=True):
+            for img in scandir(img_dir, img_suffix, recursive=True):
                 img_info = dict(filename=img)
                 if ann_dir is not None:
                     seg_map = img.replace(img_suffix, seg_map_suffix)
@@ -235,7 +239,7 @@ class CustomDataset(Dataset):
             if efficient_test:
                 gt_seg_map = seg_map
             else:
-                gt_seg_map = mmcv.imread(
+                gt_seg_map = imread(
                     seg_map, flag='unchanged', backend='pillow')
             gt_seg_maps.append(gt_seg_map)
         return gt_seg_maps
@@ -260,7 +264,7 @@ class CustomDataset(Dataset):
         self.custom_classes = True
         if isinstance(classes, str):
             # take it as a file path
-            class_names = mmcv.list_from_file(classes)
+            class_names = list_from_file(classes)
         elif isinstance(classes, (tuple, list)):
             class_names = classes
         else:
@@ -374,7 +378,7 @@ class CustomDataset(Dataset):
         for i in range(1, len(summary_table_data[0])):
             eval_results[summary_table_data[0]
                          [i]] = summary_table_data[1][i] / 100.0
-        if mmcv.is_list_of(results, str):
+        if is_list_of(results, str):
             for file_name in results:
                 os.remove(file_name)
         return eval_results

@@ -1,6 +1,9 @@
-import mmcv
+# import mmcv
 import numpy as np
-from mmcv.utils import deprecated_api_warning, is_tuple_of
+from mmcv_barebones import deprecated_api_warning, is_tuple_of, is_list_of
+from mmcv_barebones.image_geometric import imrescale, imresize, imflip, impad, impad_to_multiple, imrotate
+from mmcv_barebones.photometric import imnormalize, lut_transform, clahe
+from mmcv_barebones.colorspace import bgr2hsv, hsv2bgr
 from numpy import random
 
 from ..builder import PIPELINES
@@ -50,7 +53,7 @@ class Resize(object):
                 self.img_scale = img_scale
             else:
                 self.img_scale = [img_scale]
-            assert mmcv.is_list_of(self.img_scale, tuple)
+            assert is_list_of(self.img_scale, tuple)
 
         if ratio_range is not None:
             # mode 1: given img_scale=None and a range of image ratio
@@ -77,7 +80,7 @@ class Resize(object):
                 ``scale_idx`` is the selected index in the given candidates.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple)
+        assert is_list_of(img_scales, tuple)
         scale_idx = np.random.randint(len(img_scales))
         img_scale = img_scales[scale_idx]
         return img_scale, scale_idx
@@ -97,7 +100,7 @@ class Resize(object):
                 to be consistent with :func:`random_select`.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple) and len(img_scales) == 2
+        assert is_list_of(img_scales, tuple) and len(img_scales) == 2
         img_scale_long = [max(s) for s in img_scales]
         img_scale_short = [min(s) for s in img_scales]
         long_edge = np.random.randint(
@@ -177,7 +180,7 @@ class Resize(object):
     def _resize_img(self, results):
         """Resize images with ``results['scale']``."""
         if self.keep_ratio:
-            img, scale_factor = mmcv.imrescale(
+            img, scale_factor = imrescale(
                 results['img'], results['scale'], return_scale=True)
             # the w_scale and h_scale has minor difference
             # a real fix should be done in the mmcv.imrescale in the future
@@ -186,7 +189,7 @@ class Resize(object):
             w_scale = new_w / w
             h_scale = new_h / h
         else:
-            img, w_scale, h_scale = mmcv.imresize(
+            img, w_scale, h_scale = imresize(
                 results['img'], results['scale'], return_scale=True)
         scale_factor = np.array([w_scale, h_scale, w_scale, h_scale],
                                 dtype=np.float32)
@@ -200,10 +203,10 @@ class Resize(object):
         """Resize semantic segmentation map with ``results['scale']``."""
         for key in results.get('seg_fields', []):
             if self.keep_ratio:
-                gt_seg = mmcv.imrescale(
+                gt_seg = imrescale(
                     results[key], results['scale'], interpolation='nearest')
             else:
-                gt_seg = mmcv.imresize(
+                gt_seg = imresize(
                     results[key], results['scale'], interpolation='nearest')
             results[key] = gt_seg
 
@@ -275,13 +278,13 @@ class RandomFlip(object):
             results['flip_direction'] = self.direction
         if results['flip']:
             # flip image
-            results['img'] = mmcv.imflip(
+            results['img'] = imflip(
                 results['img'], direction=results['flip_direction'])
 
             # flip segs
             for key in results.get('seg_fields', []):
                 # use copy() to make numpy stride positive
-                results[key] = mmcv.imflip(
+                results[key] = imflip(
                     results[key], direction=results['flip_direction']).copy()
         return results
 
@@ -321,10 +324,10 @@ class Pad(object):
     def _pad_img(self, results):
         """Pad images according to ``self.size``."""
         if self.size is not None:
-            padded_img = mmcv.impad(
+            padded_img = impad(
                 results['img'], shape=self.size, pad_val=self.pad_val)
         elif self.size_divisor is not None:
-            padded_img = mmcv.impad_to_multiple(
+            padded_img = impad_to_multiple(
                 results['img'], self.size_divisor, pad_val=self.pad_val)
         results['img'] = padded_img
         results['pad_shape'] = padded_img.shape
@@ -334,7 +337,7 @@ class Pad(object):
     def _pad_seg(self, results):
         """Pad masks according to ``results['pad_shape']``."""
         for key in results.get('seg_fields', []):
-            results[key] = mmcv.impad(
+            results[key] = impad(
                 results[key],
                 shape=results['pad_shape'][:2],
                 pad_val=self.seg_pad_val)
@@ -389,7 +392,7 @@ class Normalize(object):
                 result dict.
         """
 
-        results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std,
+        results['img'] = imnormalize(results['img'], self.mean, self.std,
                                           self.to_rgb)
         results['img_norm_cfg'] = dict(
             mean=self.mean, std=self.std, to_rgb=self.to_rgb)
@@ -480,7 +483,7 @@ class CLAHE(object):
         """
 
         for i in range(results['img'].shape[2]):
-            results['img'][:, :, i] = mmcv.clahe(
+            results['img'][:, :, i] = clahe(
                 np.array(results['img'][:, :, i], dtype=np.uint8),
                 self.clip_limit, self.tile_grid_size)
 
@@ -620,7 +623,7 @@ class RandomRotate(object):
         degree = np.random.uniform(min(*self.degree), max(*self.degree))
         if rotate:
             # rotate image
-            results['img'] = mmcv.imrotate(
+            results['img'] = imrotate(
                 results['img'],
                 angle=degree,
                 border_value=self.pal_val,
@@ -629,7 +632,7 @@ class RandomRotate(object):
 
             # rotate segs
             for key in results.get('seg_fields', []):
-                results[key] = mmcv.imrotate(
+                results[key] = imrotate(
                     results[key],
                     angle=degree,
                     border_value=self.seg_pad_val,
@@ -731,7 +734,7 @@ class AdjustGamma(object):
             dict: Processed results.
         """
 
-        results['img'] = mmcv.lut_transform(
+        results['img'] = lut_transform(
             np.array(results['img'], dtype=np.uint8), self.table)
 
         return results
@@ -762,7 +765,7 @@ class SegRescale(object):
         """
         for key in results.get('seg_fields', []):
             if self.scale_factor != 1:
-                results[key] = mmcv.imrescale(
+                results[key] = imrescale(
                     results[key], self.scale_factor, interpolation='nearest')
         return results
 
@@ -828,22 +831,22 @@ class PhotoMetricDistortion(object):
     def saturation(self, img):
         """Saturation distortion."""
         if random.randint(2):
-            img = mmcv.bgr2hsv(img)
+            img = bgr2hsv(img)
             img[:, :, 1] = self.convert(
                 img[:, :, 1],
                 alpha=random.uniform(self.saturation_lower,
                                      self.saturation_upper))
-            img = mmcv.hsv2bgr(img)
+            img = hsv2bgr(img)
         return img
 
     def hue(self, img):
         """Hue distortion."""
         if random.randint(2):
-            img = mmcv.bgr2hsv(img)
+            img = bgr2hsv(img)
             img[:, :,
                 0] = (img[:, :, 0].astype(int) +
                       random.randint(-self.hue_delta, self.hue_delta)) % 180
-            img = mmcv.hsv2bgr(img)
+            img = hsv2bgr(img)
         return img
 
     def __call__(self, results):

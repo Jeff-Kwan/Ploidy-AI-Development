@@ -1,11 +1,14 @@
 import matplotlib.pyplot as plt
-import mmcv
+# import mmcv
 import torch
-from mmcv.parallel import collate, scatter
-from mmcv.runner import load_checkpoint
+from mmcv_barebones.parallel import collate, scatter
+from mmcv_barebones.runner import load_checkpoint
+from mmcv_barebones.Config import Config
+from mmcv_barebones.image_io import imread
+from mmcv_barebones.colorspace import bgr2rgb
 
-from mmseg.datasets.pipelines import Compose
-from mmseg.models import build_segmentor
+from datasets.pipelines import Compose
+from models import build_segmentor
 
 
 def init_segmentor(config, checkpoint=None, device='cuda:0'):
@@ -22,8 +25,8 @@ def init_segmentor(config, checkpoint=None, device='cuda:0'):
         nn.Module: The constructed segmentor.
     """
     if isinstance(config, str):
-        config = mmcv.Config.fromfile(config)
-    elif not isinstance(config, mmcv.Config):
+        config = Config.fromfile(config)
+    elif not isinstance(config, Config):
         raise TypeError('config must be a filename or Config object, '
                         'but got {}'.format(type(config)))
     config.model.pretrained = None
@@ -59,7 +62,7 @@ class LoadImage:
         else:
             results['filename'] = None
             results['ori_filename'] = None
-        img = mmcv.imread(results['img'])
+        img = imread(results['img'])
         results['img'] = img
         results['img_shape'] = img.shape
         results['ori_shape'] = img.shape
@@ -114,5 +117,5 @@ def show_result_pyplot(model, img, result, palette=None, fig_size=(15, 10)):
         model = model.module
     img = model.show_result(img, result, palette=palette, show=False)
     plt.figure(figsize=fig_size)
-    plt.imshow(mmcv.bgr2rgb(img))
+    plt.imshow(bgr2rgb(img))
     plt.show()
