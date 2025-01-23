@@ -32,9 +32,9 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
     model.to(device)
 
     # Torch compile & matmul precision
-    if 'linux' in sys.platform:
-        torch.set_float32_matmul_precision('high')
-        model = torch.compile(model)
+    # if 'linux' in sys.platform:
+    torch.set_float32_matmul_precision('high')
+    model = torch.compile(model)
 
 
     for epoch in range(num_epochs):
@@ -44,6 +44,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
             optimizer.zero_grad()
             x, y = x.to(device), y.to(device)
             y_pred = model(x).squeeze()
+            # print(y_pred, y)
             loss = criterion(y_pred, y)
             loss.backward()
             if i % aggregation == 0:
@@ -67,11 +68,11 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
 
 if __name__ == '__main__':
     # Hyperparameters
-    num_epochs = 20
+    num_epochs = 50
     batch_size = 4
-    aggregation = 4     # Number of batches to aggregate gradients
+    aggregation = 8     # Number of batches to aggregate gradients
     learning_rate = 1e-3
-    weight_decay = 1e-2
+    weight_decay = 1e-3
     
     # Load data
     train_loader, test_loader = dataloaders(batch_size=batch_size)
