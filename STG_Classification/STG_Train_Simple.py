@@ -7,7 +7,7 @@ import os
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from Model.Classification.Swin_Transformer import SwinTransformer
+from Model.Classification.Swin_Transformer_v2 import SwinTransformerV2 as SwinTransformer
 from STG_Classification.STG_DataLoader import load_stg_ovary_data
 from sklearn.metrics import confusion_matrix
 
@@ -27,13 +27,14 @@ def dataloaders(batch_size=128, shuffle=True):
     return train_loader, val_loader
 
 
-def train_loop(model, num_epochs, train_loader, test_loader, criterion, optimizer):
+def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criterion, optimizer):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    # Torch Compile
-    # if 'linux' in sys.platform:
-    #     model = torch.jit.script(model)
+    # Torch compile & matmul precision
+    if 'linux' in sys.platform:
+        torch.set_float32_matmul_precision('high')
+        model = torch.compile(model)
 
 
     for epoch in range(num_epochs):
@@ -45,8 +46,9 @@ def train_loop(model, num_epochs, train_loader, test_loader, criterion, optimize
             y_pred = model(x).squeeze()
             loss = criterion(y_pred, y)
             loss.backward()
-            optimizer.step()
-            p_bar.set_postfix({'Loss': loss.item()})
+            if i % aggregation == 0:
+                optimizer.step()
+                p_bar.set_postfix({'Loss': loss.item()})
 
         model.eval()
         all_preds = []
@@ -66,7 +68,8 @@ def train_loop(model, num_epochs, train_loader, test_loader, criterion, optimize
 if __name__ == '__main__':
     # Hyperparameters
     num_epochs = 20
-    batch_size = 16
+    batch_size = 4
+    aggregation = 4     # Number of batches to aggregate gradients
     learning_rate = 1e-3
     weight_decay = 1e-2
     
@@ -75,12 +78,12 @@ if __name__ == '__main__':
 
     # Model
     model_args = {
-        'img_size': 512,
+        'img_size': 1024,
         'patch_size': 4,
         'in_chans': 3,
         'num_classes': 1,
         'embed_dim': 96,
-        'depths': [2, 2, 6, 2],
+        'depths': [2, 2, 4, 2], # note smaller 3rd stage (original 6)
         'num_heads': [3, 6, 12, 24],
         'window_size': 8,
         'mlp_ratio': 4,
@@ -101,5 +104,5 @@ if __name__ == '__main__':
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
     # Train
-    train_loop(model, num_epochs, train_loader, test_loader, criterion, optimizer)
+    train_loop(model, num_epochs, aggregation, train_loader, test_loader, criterion, optimizer)
 

@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from .layers import DropPath, to_2tuple, trunc_normal_
 import numpy as np
+from typing import Optional
 
 
 class Mlp(nn.Module):
@@ -32,7 +33,7 @@ class Mlp(nn.Module):
         return x
 
 
-def window_partition(x, window_size):
+def window_partition(x, window_size:int):
     """
     Args:
         x: (B, H, W, C)
@@ -47,7 +48,7 @@ def window_partition(x, window_size):
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows, window_size:int, H:int, W:int):
     """
     Args:
         windows: (num_windows*B, window_size, window_size, C)
@@ -88,6 +89,8 @@ class WindowAttention(nn.Module):
         self.num_heads = num_heads
 
         self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
+        logit_max = torch.log(torch.tensor(1. / 0.01, requires_grad=False))
+        self.register_buffer("logit_max", logit_max)
 
         # mlp to generate continuous relative position bias
         self.cpb_mlp = nn.Sequential(nn.Linear(2, 512, bias=True),
@@ -99,7 +102,8 @@ class WindowAttention(nn.Module):
         relative_coords_w = torch.arange(-(self.window_size[1] - 1), self.window_size[1], dtype=torch.float32)
         relative_coords_table = torch.stack(
             torch.meshgrid([relative_coords_h,
-                            relative_coords_w])).permute(1, 2, 0).contiguous().unsqueeze(0)  # 1, 2*Wh-1, 2*Ww-1, 2
+                            relative_coords_w], 
+                            indexing='ij')).permute(1, 2, 0).contiguous().unsqueeze(0)  # 1, 2*Wh-1, 2*Ww-1, 2
         if pretrained_window_size[0] > 0:
             relative_coords_table[:, :, :, 0] /= (pretrained_window_size[0] - 1)
             relative_coords_table[:, :, :, 1] /= (pretrained_window_size[1] - 1)
@@ -115,7 +119,7 @@ class WindowAttention(nn.Module):
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing='ij'))  # 2, Wh, Ww
         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
@@ -137,7 +141,7 @@ class WindowAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask:Optional[torch.Tensor]=None):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
@@ -153,7 +157,7 @@ class WindowAttention(nn.Module):
 
         # cosine attention
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
-        logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1. / 0.01))).exp()
+        logit_scale = torch.clamp(self.logit_scale, max=self.logit_max).exp()
         attn = attn * logit_scale
 
         relative_position_bias_table = self.cpb_mlp(self.relative_coords_table).view(-1, self.num_heads)

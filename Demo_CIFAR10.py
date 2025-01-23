@@ -5,7 +5,7 @@ from torchvision.transforms import v2, InterpolationMode
 from tqdm import tqdm
 import sys
 
-from Model.Classification.Swin_Transformer import SwinTransformer
+from Model.Classification.Swin_Transformer_v2 import SwinTransformerV2 as SwinTransformer
 
 
 def dataloaders(batch_size=128, shuffle=True):
@@ -84,15 +84,15 @@ if __name__ == '__main__':
         'num_heads': [3, 6, 12],
         'window_size': 4,
         'mlp_ratio': 4,
-        'qkv_bias': True,
-        'qk_scale': None,
+        'qkv_bias': None,
         'drop_rate': 0.0,
         'drop_path_rate': 0.0,
         'norm_layer': torch.nn.LayerNorm,
-        'ape': False,
+        'ape': False,   # Commened out for torch compile
         'patch_norm': True,
         'use_checkpoint': False,
-        'fused_window_process': False   # False (default) learns faster at same computational speed
+        # 'fused_window_process': False   # Cannot use with torch compile
+        # 'pretrained_window_sizes': [0, 0, 0, 0]
     }
     model = SwinTransformer(**model_args)
     criterion = torch.nn.CrossEntropyLoss()
@@ -101,8 +101,8 @@ if __name__ == '__main__':
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
     # Torch Compile
-    # if 'linux' in sys.platform:
-    #     model = torch.jit.script(model)
+    if 'linux' in sys.platform:
+        model = torch.compile(model)
 
     # Train
     train_loop(model, num_epochs, train_loader, test_loader, criterion, optimizer)
