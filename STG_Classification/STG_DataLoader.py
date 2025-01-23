@@ -82,7 +82,7 @@ def load_stg_ovary_data(root_dir, batch_size=32, shuffle=True, num_workers=1, au
         train_dataset, batch_size=batch_size, shuffle=shuffle, 
         num_workers=num_workers, pin_memory=True)
     validation_loader = DataLoader(
-        validation_dataset, batch_size=1, shuffle=shuffle, 
+        validation_dataset, batch_size=batch_size, shuffle=shuffle, 
         num_workers=num_workers, pin_memory=True)   # Too eaasy to crash if using gradient accumulation
 
     return train_loader, validation_loader

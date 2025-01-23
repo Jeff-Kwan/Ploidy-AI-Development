@@ -9,6 +9,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from Model.Classification.Swin_Transformer import SwinTransformer
 from STG_Classification.STG_DataLoader import load_stg_ovary_data
+from sklearn.metrics import confusion_matrix
 
 
 
@@ -30,6 +31,10 @@ def train_loop(model, num_epochs, train_loader, test_loader, criterion, optimize
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
+    # Torch Compile
+    # if 'linux' in sys.platform:
+    #     model = torch.jit.script(model)
+
 
     for epoch in range(num_epochs):
         model.train()
@@ -44,22 +49,24 @@ def train_loop(model, num_epochs, train_loader, test_loader, criterion, optimize
             p_bar.set_postfix({'Loss': loss.item()})
 
         model.eval()
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for x, y in test_loader:
-                x, y = x.cuda(), y.cuda()
+        all_preds = []
+        all_labels = []
+        with torch.inference_mode():
+            p_bar = tqdm(enumerate(test_loader), desc=f"Validating", total=len(test_loader))
+            for i, (x, y) in p_bar:
+                x, y = x.to(device), y.to(device)
                 y_pred = model(x)
                 _, predicted = torch.max(y_pred, 1)
-                total += y.size(0)
-                correct += (predicted == y).sum().item()
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(y.cpu().numpy())
 
-        print(f'Epoch {epoch} Test Accuracy: {correct/total*100:.2f}%')
+        cm = confusion_matrix(all_labels, all_preds)
+        print(f'\nEpoch {epoch} - Confusion Matrix:\n{cm}\n')
 
 if __name__ == '__main__':
     # Hyperparameters
-    num_epochs = 1
-    batch_size = 8
+    num_epochs = 20
+    batch_size = 16
     learning_rate = 1e-3
     weight_decay = 1e-2
     
@@ -85,7 +92,7 @@ if __name__ == '__main__':
         'ape': False,
         'patch_norm': True,
         'use_checkpoint': False,
-        'fused_window_process': False   # False (default) learns faster at same computational speed
+        'fused_window_process': False   # Cannot use with torch compile
     }
     model = SwinTransformer(**model_args)
     criterion = torch.nn.BCEWithLogitsLoss()

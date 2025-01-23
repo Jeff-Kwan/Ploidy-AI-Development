@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import v2, InterpolationMode
 from tqdm import tqdm
+import sys
 
 from Model.Classification.Swin_Transformer import SwinTransformer
 
@@ -24,8 +25,8 @@ def dataloaders(batch_size=128, shuffle=True):
     ])
     test_transform = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True),  v2.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
 
-    train_data = datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transform)
-    test_data = datasets.CIFAR10(root='./data', train=False, download=True, transform=test_transform)
+    train_data = datasets.CIFAR10(root='./Data', train=True, download=False, transform=train_transform)
+    test_data = datasets.CIFAR10(root='./Data', train=False, download=False, transform=test_transform)
 
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=shuffle)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=shuffle)
@@ -98,6 +99,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
+
+    # Torch Compile
+    # if 'linux' in sys.platform:
+    #     model = torch.jit.script(model)
 
     # Train
     train_loop(model, num_epochs, train_loader, test_loader, criterion, optimizer)
