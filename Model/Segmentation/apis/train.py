@@ -3,12 +3,12 @@ import warnings
 
 import numpy as np
 import torch
-from mmcv_barebones.parallel import MMDataParallel, MMDistributedDataParallel
-from mmcv_barebones.runner import build_optimizer, build_runner
+from ..mmcv_barebones.parallel import MMDataParallel, MMDistributedDataParallel
+from ..mmcv_barebones.runner import build_optimizer, build_runner
 
-from core import DistEvalHook, EvalHook
-from datasets import build_dataloader, build_dataset
-from utils import get_root_logger
+from ..core import DistEvalHook, EvalHook
+from ..datasets import build_dataloader, build_dataset
+from ..utils import get_root_logger
 
 
 def set_random_seed(seed, deterministic=False):
