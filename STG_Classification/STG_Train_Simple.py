@@ -32,9 +32,9 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
     model.to(device)
 
     # Torch compile & matmul precision
-    # if 'linux' in sys.platform:
-    torch.set_float32_matmul_precision('high')
-    model = torch.compile(model)
+    if 'linux' in sys.platform:
+        torch.set_float32_matmul_precision('high')
+        model = torch.compile(model)
 
 
     for epoch in range(num_epochs):
