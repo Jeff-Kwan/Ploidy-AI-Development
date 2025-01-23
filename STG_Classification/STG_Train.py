@@ -4,7 +4,7 @@ from tqdm import tqdm
 import os, sys
 import matplotlib.pyplot as plt
 
-from CVC_Demo.CVC_Results import validate_model, plot_losses, save_model_desc, save_results, plot_PRC, get_image_mask_pred
+from .STG_Results import validate_model, plot_losses, save_model_desc, save_results, plot_PRC, get_image_mask_pred
 
 def get_loss(loss):
     if loss == 'BCEWithLogitsLoss':
@@ -20,30 +20,12 @@ def get_loss(loss):
 def model_forward(model, batch_x, batch_y, criterion, device):
     '''Forward pass of the model'''
     logits = model(batch_x)
-    print([l.size() for l in logits], batch_y.size())
-    exit()
     loss = criterion(logits, batch_y)
     if model.training:
         loss.backward()
     return model, loss
 
-
-def print_fro_stats(model):
-    W = model.embed.weight
-    W = W.view(W.size(0), -1)
-    sv = torch.linalg.svdvals(W)
-    frob_norm = torch.linalg.norm(W, ord='fro')
-    print('Embedding:', round(frob_norm.item(),5), round(torch.mean(sv).item(),5), 
-            round(torch.max(sv).item(),5), round(torch.min(sv).item(),5))
-    W = model.out.weight
-    W = W.view(W.size(0), -1)
-    sv = torch.linalg.svdvals(W)
-    frob_norm = torch.linalg.norm(W, ord='fro')
-    print('Out Proj:', round(frob_norm.item(),5), round(torch.mean(sv).item(),5), 
-            round(torch.max(sv).item(),5), round(torch.min(sv).item(),5))
-    return
-
-def train_cvc_model(model, config, train_loader, val_loader, save_steps, output_dir, device='cuda'):
+def train_STG_model(model, config, train_loader, val_loader, save_steps, output_dir, device='cuda'):
     '''Train the segmentation model on the STGOvary dataset.
     Returns: Trained model, training losses, validation losses, training time.'''
     # Admin work
@@ -110,7 +92,6 @@ def train_cvc_model(model, config, train_loader, val_loader, save_steps, output_
                     save_results(model, val_loader, config, output_dir, device, results=5)
                     running_loss = 0
                     i = 0
-                    print_fro_stats(model)
         
         torch.save(model.state_dict(), os.path.join(output_dir, f'{config.timestamp}-{config.name}-{config.data}-model.pt'))
         torch.save(optimizer.state_dict(), os.path.join(output_dir, f'{config.timestamp}-{config.name}-{config.data}-optimizer.pt')) if config.continue_training else None
@@ -124,14 +105,13 @@ def train_cvc_model(model, config, train_loader, val_loader, save_steps, output_
         save_results(model, val_loader, config, output_dir, device, results=5)
         torch.cuda.empty_cache() if device == 'cuda' else None
         tqdm.write(f"Epoch [{epoch+1}/{config.epochs}], Loss: {config.train_losses[-1]:.5f}, Val Loss: {config.val_losses[-1]:.5f}")
-        print_fro_stats(model)
 
     print(f"Trained {config.name} Model Size: {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters")
     print(f"Achieved Accuracy: {accuracy*100:.3f}%, Precision: {precision:.3f}, Recall: {recall:.3f}, AUPRC: {auprc:.5f}, Average Loss: {av_loss:.5f}")
     return model, config
 
 
-def crunch_cvc_batch(model, config, train_loader, path, steps=50, device='cuda'):
+def crunch_STG_batch(model, config, train_loader, path, steps=50, device='cuda'):
     '''Crunch a single batch of images and masks through the model.'''
     os.makedirs(path, exist_ok=True)
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
