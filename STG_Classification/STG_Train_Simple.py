@@ -22,9 +22,9 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
         v2.RandomCrop(1024, padding=64),
-        v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
+        # v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
         # v2.RandomAffine(degrees=10, scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
-        v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+        # v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
     ]
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     train_loader, val_loader = load_stg_ovary_data(root_dir, batch_size, shuffle, augmentations=augmentations, num_workers=workers)
@@ -67,8 +67,9 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             y_pred = model(x).squeeze(-1)
             loss = criterion(y_pred, y)
             loss.backward()
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             results['training_losses'][epoch] += loss.item()
-            p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1)})
+            p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1), 'Norm': norm.item()})
             if ((i+1) % aggregation == 0) or (i == len(train_loader)-1):
                 optimizer.step()
                 optimizer.zero_grad()
@@ -109,8 +110,8 @@ if __name__ == '__main__':
     # Hyperparameters
     num_epochs = 100
     batch_size = 4
-    aggregation = 12     # Number of batches to aggregate gradients
-    learning_rate = 3e-4
+    aggregation = 16     # Number of batches to aggregate gradients
+    learning_rate = 1e-4
     weight_decay = 1e-2
     
     # Load data
@@ -145,7 +146,7 @@ if __name__ == '__main__':
     negatives = list(train_loader.dataset.labels.values()).count(0)
     print(f'Number of negative samples in training labels: {negatives}')
     ratio = negatives / positives
-    print(f'Positive : Negative ratio in training labels: {ratio} -> Use as pos_weight in training BCE')
+    print(f'Negative : Positive ratio in training labels: {ratio} -> Use as pos_weight in training BCE')
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(ratio))
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
