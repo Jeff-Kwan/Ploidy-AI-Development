@@ -46,7 +46,6 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             'validation_losses': [],
             'confusion_matrices': []
         }
-    val_bce = torch.nn.BCEWithLogitsLoss()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
@@ -81,7 +80,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             for i, (x, y) in p_bar:
                 x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
                 y_pred = model(x).squeeze(-1)
-                results['validation_losses'][epoch] += val_bce(y_pred, y).item()
+                results['validation_losses'][epoch] += criterion(y_pred, y).item()
                 predicted = torch.sigmoid(y_pred) > 0.5
                 all_preds.extend(predicted.detach().cpu().numpy())
                 all_labels.extend(y.detach().cpu().numpy())
