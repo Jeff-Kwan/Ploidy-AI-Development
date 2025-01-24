@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import v2, InterpolationMode
@@ -10,7 +11,6 @@ import matplotlib.pyplot as plt
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from Model.Classification.Swin_Transformer_v2 import SwinTransformerV2 as SwinTransformer
 from STG_Classification.STG_DataLoader import load_stg_ovary_data
 from sklearn.metrics import confusion_matrix
 
@@ -36,7 +36,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%H-%M")
-    output_dir = os.path.join(root_dir, 'STG_Classification', 'Output', date, f"{timestamp}-Swin")
+    output_dir = os.path.join(root_dir, 'STG_Classification', 'Output', date, f"{timestamp}-SimpleCNN")
     os.makedirs(output_dir, exist_ok=True)
 
     # Keep track
@@ -89,7 +89,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
         print(f'\nEpoch {epoch} - Confusion Matrix:\n{cm}\n')
 
         # Save the model & losses with performance
-        torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
+        torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_SimpleCNN.pth'))
         results['training_losses'][epoch] /= len(train_loader)
         results['validation_losses'][epoch] /= len(test_loader)
         with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
@@ -102,44 +102,61 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
         plt.savefig(os.path.join(output_dir, f'{timestamp}_losses.png'))
         plt.clf()
         
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.SiLU = nn.SiLU()
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        x = self.bn(x + self.conv2(self.SiLU(self.conv1(x))))
+        return x
+
+class SimpleCNN(nn.Module):
+    def __init__(self):
+        super(SimpleCNN, self).__init__()
+        self.in_conv = nn.Sequential(nn.Conv2d(3, 16, 1, 1, 0), ResidualBlock(16))
+        self.convs = nn.ModuleList([
+            ResidualBlock(32),
+            ResidualBlock(64),
+            ResidualBlock(128),
+        ])
+        self.downs = nn.ModuleList([
+            nn.Conv2d(16, 32, kernel_size=2, stride=2, padding=0, bias=False),
+            nn.Conv2d(32, 64, kernel_size=2, stride=2, padding=0, bias=False),
+            nn.Conv2d(64, 128, kernel_size=2, stride=2, padding=0, bias=False),
+        ])
+        self.acts = nn.ModuleList([nn.SiLU() for _ in range(len(self.convs))])
+        self.norms = nn.ModuleList([nn.BatchNorm2d(32*2**i) for i in range(len(self.convs))])
+        self.fc = nn.Linear(128, 1) 
+
+    def forward(self, x):
+        x = self.in_conv(x)
+        for conv, down, act, norm in zip(self.convs, self.downs, self.acts, self.norms):
+            x = down(x)
+            x = norm(x + act(conv(x)))
+        x = self.fc(torch.mean(x, dim=[2, 3]))
+        return x
 
 if __name__ == '__main__':
     # Hyperparameters
-    num_epochs = 50
-    batch_size = 4
-    aggregation = 32     # Number of batches to aggregate gradients
-    learning_rate = 3e-4
+    num_epochs = 100
+    batch_size = 8
+    aggregation = 2     # Number of batches to aggregate gradients
+    learning_rate = 1e-3
     weight_decay = 1e-2
     
     # Load data
     train_loader, test_loader = dataloaders(batch_size=batch_size, workers=8)
 
     # Model
-    model_args = {
-        'img_size': 1024,
-        'patch_size': 4,
-        'in_chans': 3,
-        'num_classes': 1,
-        'embed_dim': 96,
-        'depths': [2, 2, 4, 2], # note smaller 3rd stage (original 6)
-        'num_heads': [3, 6, 12, 24],
-        'window_size': 8,
-        'mlp_ratio': 4,
-        'qkv_bias': True,
-        'qk_scale': None,
-        'drop': 0.2,
-        'drop_path_rate': 0.0,
-        'norm_layer': torch.nn.LayerNorm,
-        'ape': False,
-        'patch_norm': True,
-        'use_checkpoint': False,
-        'fused_window_process': False   # Cannot use with torch compile
-    }
-    model = SwinTransformer(**model_args)
+    model = SimpleCNN()
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
+    print(f"Initialized SimpleCNN with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
     # Train
     train_loop(model, num_epochs, aggregation, train_loader, test_loader, criterion, optimizer)

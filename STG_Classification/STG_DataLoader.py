@@ -29,9 +29,10 @@ class STGOvaryDataset(Dataset):
         # Transformation normalisations
         self.to_tensor = v2.Compose([v2.ToImage(), 
                                      v2.Resize(1024, interpolation=InterpolationMode.BILINEAR),
-                                     v2.ToDtype(torch.float32, scale=True)
+                                    #  v2.ToDtype(torch.float32, scale=True)
                                      ])
-        self.image_norm = v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        self.image_norm = v2.Compose([v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
         
     def __len__(self):
         return len(self.image_files)
