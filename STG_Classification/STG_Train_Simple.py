@@ -21,9 +21,10 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         # Augmentations
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
-        v2.RandomCrop(1024, padding=32),
-        # v2.RandomAffine(degrees=20, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
-        # v2.ColorJitter(brightness=0.3, contrast=0.2, saturation=0.1, hue=0.1),
+        v2.RandomCrop(1024, padding=64),
+        # v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
+        # v2.RandomAffine(degrees=10, scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
+        # v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
     ]
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     train_loader, val_loader = load_stg_ovary_data(root_dir, batch_size, shuffle, augmentations=augmentations, num_workers=workers)
@@ -69,7 +70,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             loss.backward()
             results['training_losses'][epoch] += loss.item()
             p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1)})
-            if (i+1) % aggregation == 0:
+            if ((i+1) % aggregation == 0) or (i == len(train_loader)-1):
                 optimizer.step()
 
         model.eval()
@@ -106,11 +107,11 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
 
 if __name__ == '__main__':
     # Hyperparameters
-    num_epochs = 50
+    num_epochs = 100
     batch_size = 4
-    aggregation = 16     # Number of batches to aggregate gradients
-    learning_rate = 1e-3
-    weight_decay = 1e-2
+    aggregation = 8     # Number of batches to aggregate gradients
+    learning_rate = 2e-4
+    weight_decay = 1e-3
     
     # Load data
     train_loader, val_loader = dataloaders(batch_size=batch_size, workers=8)
