@@ -22,9 +22,9 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
         v2.RandomCrop(1024, padding=64),
-        # v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
+        v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
         # v2.RandomAffine(degrees=10, scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
-        # v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+        v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
     ]
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     train_loader, val_loader = load_stg_ovary_data(root_dir, batch_size, shuffle, augmentations=augmentations, num_workers=workers)
