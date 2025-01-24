@@ -6,6 +6,7 @@ from tqdm import tqdm
 import os
 import datetime
 import json
+import matplotlib.pyplot as plt
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,7 +21,7 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         # Augmentations
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
-        v2.RandomCrop(256, padding=32),
+        v2.RandomCrop(1024, padding=32),
         # v2.RandomAffine(degrees=20, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
         # v2.ColorJitter(brightness=0.3, contrast=0.2, saturation=0.1, hue=0.1),
     ]
@@ -35,13 +36,13 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%H-%M")
-    output_dir = os.path.join(root_dir, 'STG_Classification', 'Output', date, timestamp)
+    output_dir = os.path.join(root_dir, 'STG_Classification', 'Output', date, f"{timestamp}-Swin")
     os.makedirs(output_dir, exist_ok=True)
 
     # Keep track
     results = {
-            'training_losses': [0] * num_epochs,
-            'validation_losses': [0] * num_epochs,
+            'training_losses': [],
+            'validation_losses': [],
             'confusion_matrices': []
         }
 
@@ -56,17 +57,18 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
 
     for epoch in range(num_epochs):
         model.train()
+        results['training_losses'].append(0)
+        results['validation_losses'].append(0)
         p_bar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch}", total=len(train_loader))
         for i, (x, y) in p_bar:
             optimizer.zero_grad()
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             y_pred = model(x).squeeze(-1)
-            # print(y_pred, y)
             loss = criterion(y_pred, y)
             loss.backward()
             results['training_losses'][epoch] += loss.item()
             p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1)})
-            if (i-1) % aggregation == 0:
+            if (i+1) % aggregation == 0:
                 optimizer.step()
 
         model.eval()
@@ -78,12 +80,12 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
                 x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
                 y_pred = model(x).squeeze(-1)
                 results['validation_losses'][epoch] += criterion(y_pred, y).item()
-                predicted = y_pred > 0.    # Binary classification for logits
-                all_preds.extend(predicted.cpu().numpy())
-                all_labels.extend(y.cpu().numpy())
+                predicted = torch.sigmoid(y_pred) > 0.5
+                all_preds.extend(predicted.detach().cpu().numpy())
+                all_labels.extend(y.detach().cpu().numpy())
 
         cm = confusion_matrix(all_labels, all_preds)
-        results['cms'].append(cm)
+        results['confusion_matrices'].append(cm.tolist())
         print(f'\nEpoch {epoch} - Confusion Matrix:\n{cm}\n')
 
         # Save the model & losses with performance
@@ -92,13 +94,19 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
         results['validation_losses'][epoch] /= len(test_loader)
         with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
             json.dump(results, f, indent=4)
+        plt.plot(results['training_losses'], label='Training Loss')
+        plt.plot(results['validation_losses'], label='Validation Loss')
+        plt.legend()
+        plt.title('Training and Validation Losses')
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'{timestamp}_losses.png'))
         
 
 if __name__ == '__main__':
     # Hyperparameters
     num_epochs = 50
-    batch_size = 48
-    aggregation = 1     # Number of batches to aggregate gradients
+    batch_size = 4
+    aggregation = 8     # Number of batches to aggregate gradients
     learning_rate = 1e-3
     weight_decay = 1e-2
     
@@ -107,7 +115,7 @@ if __name__ == '__main__':
 
     # Model
     model_args = {
-        'img_size': 256,
+        'img_size': 1024,
         'patch_size': 4,
         'in_chans': 3,
         'num_classes': 1,
