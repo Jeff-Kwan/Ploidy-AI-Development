@@ -61,8 +61,8 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
         results['training_losses'].append(0)
         results['validation_losses'].append(0)
         p_bar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch}", total=len(train_loader))
+        optimizer.zero_grad()
         for i, (x, y) in p_bar:
-            optimizer.zero_grad()
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             y_pred = model(x).squeeze(-1)
             loss = criterion(y_pred, y)
@@ -71,6 +71,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1)})
             if ((i+1) % aggregation == 0) or (i == len(train_loader)-1):
                 optimizer.step()
+                optimizer.zero_grad()
 
         model.eval()
         all_preds = []
