@@ -7,6 +7,7 @@ Classification Labels: 1 (with ploidy cells), 0 (no ploidy cells)
 import os
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms.v2 as v2
+from torchvision.transforms import InterpolationMode
 import json
 import torch
 from PIL import Image
@@ -27,9 +28,9 @@ class STGOvaryDataset(Dataset):
 
         # Transformation normalisations
         self.to_tensor = v2.Compose([v2.ToImage(), 
-                                     v2.ToDtype(torch.float32, scale=True),
-                                    #  v2.CenterCrop([2048, 2048]),
-                                     v2.Resize(1024)])
+                                     v2.Resize(256, interpolation=InterpolationMode.BILINEAR),
+                                     v2.ToDtype(torch.float32, scale=True)
+                                     ])
         self.image_norm = v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         
     def __len__(self):
@@ -80,10 +81,10 @@ def load_stg_ovary_data(root_dir, batch_size=32, shuffle=True, num_workers=1, au
     # Create data loaders for train and validation datasets with pin_memory for faster GPU transfers
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=shuffle, 
-        num_workers=num_workers, pin_memory=True)
+        num_workers=num_workers, pin_memory=True, prefetch_factor=4)  
     validation_loader = DataLoader(
         validation_dataset, batch_size=batch_size, shuffle=shuffle, 
-        num_workers=num_workers, pin_memory=True)   # Too eaasy to crash if using gradient accumulation
+        num_workers=num_workers, pin_memory=True, prefetch_factor=4)
 
     return train_loader, validation_loader
 
