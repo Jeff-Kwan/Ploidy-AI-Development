@@ -16,33 +16,37 @@ class STGOvaryDataset(Dataset):
     def __init__(self, root_dir, indices=None, augmentation=None):
         self.root_dir = root_dir
         self.augmentation = v2.Compose(augmentation) if augmentation else None
-        self.image_dir = os.path.join(root_dir, 'Data', 'STGOvary', 'Classification_Data')
+        self.image_dir = os.path.join(root_dir, 'Data', 'STGOvary', 'Filtered_Classification_Data')
         
         # Efficiently list and sort image and mask files using os.scandir
-        self.image_files = sorted([entry.name for entry in os.scandir(self.image_dir) if entry.is_file() and entry.name.endswith('.jpeg')])
-        self.labels = json.load(open(os.path.join(self.image_dir, 'labels.json')))
+        image_files = sorted([entry.name for entry in os.scandir(self.image_dir) if entry.is_file() and entry.name.endswith('.png')])
+        labels = json.load(open(os.path.join(self.image_dir, 'labels.json')))
         
         # If indices are provided, subset the data
         if indices is not None:
-            self.image_files = [self.image_files[i] for i in indices]
+            self.image_files = [image_files[i] for i in indices]
+            self.labels = {image_files[i].split('.')[0]: labels[str(i)] for i in indices}
+        else:
+            self.image_files = image_files
+            self.labels = labels
 
         # Transformation normalisations
         self.to_tensor = v2.Compose([v2.ToImage(), 
-                                     v2.Resize(1024, interpolation=InterpolationMode.BILINEAR),
-                                    #  v2.ToDtype(torch.float32, scale=True)
+                                    #  v2.Resize(1024, interpolation=InterpolationMode.BILINEAR),
+                                     v2.ToDtype(torch.float32, scale=True)
                                      ])
-        self.image_norm = v2.Compose([v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
+        self.image_norm = v2.Compose([v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
         
     def __len__(self):
         return len(self.image_files)
     
     def __getitem__(self, idx):
         img_name = os.path.join(self.image_dir, self.image_files[idx])
+        img_idx = self.image_files[idx].split('.')[0]
         
         # Read jpeg images
         image = Image.open(img_name).convert('RGB')
-        label = torch.tensor(self.labels[str(idx)], dtype=torch.float32)
+        label = torch.tensor(self.labels[img_idx], dtype=torch.float32)
         
         # Apply transformations
         image = self.to_tensor(image)
@@ -57,18 +61,30 @@ def load_stg_ovary_data(root_dir, batch_size=32, shuffle=True, num_workers=1, au
     # Load the dataset
     full_dataset = STGOvaryDataset(root_dir=root_dir)
 
-    # Calculate the sizes for train and validation splits
-    train_size = int(0.9 * len(full_dataset))
-    validation_size = len(full_dataset) - train_size
+    # Extract indices for positive and negative samples
+    positive_indices = [int(i) for i, label in full_dataset.labels.items() if label == 1]
+    negative_indices = [int(i) for i, label in full_dataset.labels.items() if label == 0]
 
-    # Split the dataset with a fixed random seed for reproducibility
+    # Set the random seed for reproducibility
     generator = torch.Generator().manual_seed(seed)
-    train_subset, validation_subset = torch.utils.data.random_split(
-        full_dataset, [train_size, validation_size], generator=generator)
 
-    # Extract indices from subsets
-    train_indices = train_subset.indices
-    validation_indices = validation_subset.indices
+    # Randomly select 50 positives and 50 negatives for validation
+    validation_positive_indices = torch.tensor(positive_indices).tolist()
+    validation_negative_indices = torch.tensor(negative_indices).tolist()
+    validation_positive_indices = torch.utils.data.random_split(validation_positive_indices, [50, len(validation_positive_indices) - 50], generator=generator)[0]
+    validation_negative_indices = torch.utils.data.random_split(validation_negative_indices, [50, len(validation_negative_indices) - 50], generator=generator)[0]
+
+    # Combine validation indices
+    validation_indices = validation_positive_indices + validation_negative_indices
+
+    # The rest are for training
+    train_indices = list(set(range(len(full_dataset))) - set(validation_indices))
+
+    # print number of positives and negatives in training and validation sets
+    # train_labels = [full_dataset.labels[str(i)] for i in train_indices]
+    # validation_labels = [full_dataset.labels[str(i)] for i in validation_indices]
+    # print(f"Train: {train_labels.count(1)} positives, {train_labels.count(0)} negatives")
+    # print(f"Validation: {validation_labels.count(1)} positives, {validation_labels.count(0)} negatives")
 
     train_dataset = STGOvaryDataset(
         root_dir=root_dir, 
@@ -78,6 +94,13 @@ def load_stg_ovary_data(root_dir, batch_size=32, shuffle=True, num_workers=1, au
         root_dir=root_dir, 
         indices=validation_indices, 
         augmentation = None)  # No augmentations for validation
+
+    # Print number of positives and negatives in the train and validation dataset labels
+    # train_dataset_labels = list(train_dataset.labels.values())
+    # validation_dataset_labels = list(validation_dataset.labels.values())
+    # print(f"Train: {train_dataset_labels.count(1)} positives, {train_dataset_labels.count(0)} negatives")
+    # print(f"Validation: {validation_dataset_labels.count(1)} positives, {validation_dataset_labels.count(0)} negatives")
+    # exit()
 
     # Create data loaders for train and validation datasets with pin_memory for faster GPU transfers
     train_loader = DataLoader(

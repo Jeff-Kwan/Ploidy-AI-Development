@@ -30,7 +30,7 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
     return train_loader, val_loader
 
 
-def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criterion, optimizer):
+def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer):
     # Output directory
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     now = datetime.datetime.now()
@@ -75,7 +75,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
         all_preds = []
         all_labels = []
         with torch.inference_mode():
-            p_bar = tqdm(enumerate(test_loader), desc=f"Validating", total=len(test_loader))
+            p_bar = tqdm(enumerate(val_loader), desc=f"Validating", total=len(val_loader))
             for i, (x, y) in p_bar:
                 x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
                 y_pred = model(x).squeeze(-1)
@@ -91,7 +91,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, test_loader, criter
         # Save the model & losses with performance
         torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
         results['training_losses'][epoch] /= len(train_loader)
-        results['validation_losses'][epoch] /= len(test_loader)
+        results['validation_losses'][epoch] /= len(val_loader)
         with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
             json.dump(results, f, indent=4)
         plt.plot(results['training_losses'], label='Training Loss')
@@ -107,12 +107,12 @@ if __name__ == '__main__':
     # Hyperparameters
     num_epochs = 50
     batch_size = 4
-    aggregation = 32     # Number of batches to aggregate gradients
-    learning_rate = 3e-4
+    aggregation = 16     # Number of batches to aggregate gradients
+    learning_rate = 1e-3
     weight_decay = 1e-2
     
     # Load data
-    train_loader, test_loader = dataloaders(batch_size=batch_size, workers=8)
+    train_loader, val_loader = dataloaders(batch_size=batch_size, workers=8)
 
     # Model
     model_args = {
@@ -136,11 +136,11 @@ if __name__ == '__main__':
         'fused_window_process': False   # Cannot use with torch compile
     }
     model = SwinTransformer(**model_args)
-    criterion = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5.0))
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
     # Train
-    train_loop(model, num_epochs, aggregation, train_loader, test_loader, criterion, optimizer)
+    train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer)
 
