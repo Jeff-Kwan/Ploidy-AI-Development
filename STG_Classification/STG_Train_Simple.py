@@ -60,7 +60,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
         model.train()
         results['training_losses'].append(0)
         results['validation_losses'].append(0)
-        p_bar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch}", total=len(train_loader))
+        p_bar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch+1}", total=len(train_loader))
         optimizer.zero_grad()
         for i, (x, y) in p_bar:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
@@ -88,12 +88,12 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
 
         cm = confusion_matrix(all_labels, all_preds)
         results['confusion_matrices'].append(cm.tolist())
-        print(f'\nEpoch {epoch} - Confusion Matrix:\n{cm}\n')
+        results['training_losses'][epoch] /= len(train_loader)
+        results['validation_losses'][epoch] /= len(val_loader)
+        print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; Confusion Matrix:\n{cm}\n')
 
         # Save the model & losses with performance
         torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
-        results['training_losses'][epoch] /= len(train_loader)
-        results['validation_losses'][epoch] /= len(val_loader)
         with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
             json.dump(results, f, indent=4)
         plt.plot(results['training_losses'], label='Training Loss')
@@ -110,7 +110,7 @@ if __name__ == '__main__':
     num_epochs = 100
     batch_size = 4
     aggregation = 12     # Number of batches to aggregate gradients
-    learning_rate = 1e-3
+    learning_rate = 3e-4
     weight_decay = 1e-2
     
     # Load data
