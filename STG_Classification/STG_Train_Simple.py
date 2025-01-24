@@ -109,9 +109,9 @@ if __name__ == '__main__':
     # Hyperparameters
     num_epochs = 100
     batch_size = 4
-    aggregation = 8     # Number of batches to aggregate gradients
-    learning_rate = 2e-4
-    weight_decay = 1e-3
+    aggregation = 12     # Number of batches to aggregate gradients
+    learning_rate = 1e-3
+    weight_decay = 1e-2
     
     # Load data
     train_loader, val_loader = dataloaders(batch_size=batch_size, workers=8)
