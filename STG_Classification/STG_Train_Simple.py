@@ -21,8 +21,8 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         # Augmentations
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
-        v2.RandomCrop(1024, padding=64),
         # v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
+        v2.RandomCrop(1024, padding=64),
         # v2.RandomAffine(degrees=10, scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
         # v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
     ]
@@ -61,16 +61,16 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
         results['training_losses'].append(0)
         results['validation_losses'].append(0)
         p_bar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch+1}", total=len(train_loader))
-        optimizer.zero_grad()
+        optimizer.zero_grad(); norm = torch.tensor(0.0)
         for i, (x, y) in p_bar:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             y_pred = model(x).squeeze(-1)
             loss = criterion(y_pred, y)
             loss.backward()
-            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             results['training_losses'][epoch] += loss.item()
             p_bar.set_postfix({'Loss': results['training_losses'][epoch]/(i+1), 'Norm': norm.item()})
             if ((i+1) % aggregation == 0) or (i == len(train_loader)-1):
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
 

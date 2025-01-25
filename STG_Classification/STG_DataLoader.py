@@ -16,10 +16,10 @@ class STGOvaryDataset(Dataset):
     def __init__(self, root_dir, indices=None, augmentation=None):
         self.root_dir = root_dir
         self.augmentation = v2.Compose(augmentation) if augmentation else None
-        self.image_dir = os.path.join(root_dir, 'Data', 'STGOvary', 'Filtered_Classification_Data')
+        self.image_dir = os.path.join(root_dir, 'Data', 'STGOvary', 'Classification_Data')
         
         # Efficiently list and sort image and mask files using os.scandir
-        image_files = sorted([entry.name for entry in os.scandir(self.image_dir) if entry.is_file() and entry.name.endswith('.png')])
+        image_files = sorted([entry.name for entry in os.scandir(self.image_dir) if entry.is_file() and entry.name.endswith('.jpeg')])
         labels = json.load(open(os.path.join(self.image_dir, 'labels.json')))
         
         # If indices are provided, subset the data
