@@ -17,8 +17,9 @@ from Losses import CombinationLoss
 from STG_Results import get_image_mask_pred
 
 def confusion_matrix(y_pred: torch.Tensor,
-                         y_true: torch.Tensor,
-                         threshold: float = 0.5) -> torch.Tensor:
+                     y_true: torch.Tensor,
+                     threshold: float = 0.5,
+                     normalize: bool = False) -> torch.Tensor:
     """
     Computes the confusion matrix for binary segmentation.
 
@@ -26,6 +27,7 @@ def confusion_matrix(y_pred: torch.Tensor,
         y_pred (torch.Tensor): Predicted probabilities/logits of shape [B, 1, H, W].
         y_true (torch.Tensor): Ground truth labels of shape [B, 1, H, W].
         threshold (float): Threshold for converting probabilities to binary predictions.
+        normalize (bool): Whether to normalize the confusion matrix.
 
     Returns:
         torch.Tensor: 2x2 confusion matrix in the format:
@@ -48,7 +50,10 @@ def confusion_matrix(y_pred: torch.Tensor,
 
     # Construct confusion matrix
     cm = torch.tensor([[tn, fp],
-                       [fn, tp]], dtype=torch.long)
+                       [fn, tp]], dtype=torch.float64)
+
+    if normalize:
+        cm = cm / cm.sum()
 
     return cm
 
@@ -57,7 +62,7 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
         # Augmentations
         v2.RandomHorizontalFlip(),
         v2.RandomVerticalFlip(),
-        # v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
+        v2.RandomRotation(degrees=20, interpolation=InterpolationMode.BILINEAR),
         v2.RandomCrop(1024, padding=64),
         # v2.RandomAffine(degrees=10, scale=(0.9, 1.1), shear=(0.1, 0.1), interpolation=InterpolationMode.BILINEAR),
         # v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
@@ -111,6 +116,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
+
         scheduler.step()
 
         model.eval()
@@ -122,7 +128,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 y_pred = model(x)
                 results['validation_losses'][epoch] += criterion(y_pred, y).item()
                 predicted = torch.sigmoid(y_pred) > 0.5
-                cm = confusion_matrix(predicted, y)
+                cm = confusion_matrix(predicted, y, normalize=True)
                 cm_list.append(cm.cpu().numpy())
 
         # Save model and results
@@ -132,7 +138,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
         cm = sum(cm_list) / len(cm_list)
         results['confusion_matrices'].append(cm.tolist())
         results['F1_scores'].append(F1_score(cm))
-        print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; Confusion Matrix:\n{cm}\n')
+        print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; F1: {results['F1_scores'][epoch]}; Confusion Matrix:\n{cm}\n')
         save_results(results, output_dir, timestamp)
         save_examples(model, val_loader, output_dir, device, results=5)
 
@@ -167,7 +173,7 @@ def F1_score(cm):
 def save_examples(model, val_loader, path, device, results=5):
     '''Run model on 5 random val images, compare results horizontally, stack 5 examples vertically'''
     random_indices = random.sample(range(len(val_loader.dataset)), results)
-    fig, axes = plt.subplots(results, 3, figsize=(15, 25))
+    fig, axes = plt.subplots(results, 3, figsize=(18, 30))
 
     for i, idx in enumerate(random_indices):
         image, mask = val_loader.dataset[idx]
@@ -192,7 +198,7 @@ def save_examples(model, val_loader, path, device, results=5):
         axes[i, 2].set_title('Overlay (G:T, Y:FN, R:FP)', fontsize=24)
         axes[i, 2].axis('off')
 
-    plt.suptitle(f'Swin Transformer Results - 5 Random Validation Images', fontsize=30)
+    plt.suptitle(f'Swin Transformer Results - 5 Random Validation Images', fontsize=28)
     plt.tight_layout()
     plt.savefig(os.path.join(path, f'Swin-STG-Results.png'))        # Save the results
     plt.close(fig) 
@@ -202,7 +208,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Hyperparameters
     num_epochs = 100
-    batch_size = 2
+    batch_size = 3
     aggregation = 16     # Number of batches to aggregate gradients
     learning_rate = 2e-3
     weight_decay = 1e-2
@@ -235,11 +241,12 @@ if __name__ == '__main__':
 
     # Ratio of positive : Negative samples in train labels
     # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
-    criterion = CombinationLoss(dice_weight=0.4, focal_weight=0.0, bce_weight=0.6,
+    criterion = CombinationLoss(dice_weight=0.2, focal_weight=0., bce_weight=0.8,
                                 dice_params={"smooth": 1e-6, "reduction": "mean"},
-                                bce_params={"pos_weight":torch.tensor(20.,device=device)})
+                                focal_params={"alpha": 0.25, "gamma": 1.5, "reduction": "mean"},
+                                bce_params={"pos_weight":torch.tensor(100.,device=device)})
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs, eta_min=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs, eta_min=1e-4)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
