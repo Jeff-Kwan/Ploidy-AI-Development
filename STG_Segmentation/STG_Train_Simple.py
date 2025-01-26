@@ -12,8 +12,43 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from Model.Classification.Swin_TransformerV2_Seg import SwinTransformerV2 as SwinTransformer
 from STG_Segmentation.STG_DataLoader import load_stg_ovary_data
-from torcheval.metrics import BinaryConfusionMatrix
+from Losses import CombinationLoss
 
+def confusion_matrix(y_pred: torch.Tensor,
+                         y_true: torch.Tensor,
+                         threshold: float = 0.5) -> torch.Tensor:
+    """
+    Computes the confusion matrix for binary segmentation.
+
+    Args:
+        y_pred (torch.Tensor): Predicted probabilities/logits of shape [B, 1, H, W].
+        y_true (torch.Tensor): Ground truth labels of shape [B, 1, H, W].
+        threshold (float): Threshold for converting probabilities to binary predictions.
+
+    Returns:
+        torch.Tensor: 2x2 confusion matrix in the format:
+                      [[tn, fp],
+                       [fn, tp]]
+    """
+    # Binarize predictions based on the threshold
+    pred_bin = (y_pred >= threshold).long()
+    true_bin = y_true.long()  # ensure it is integer type
+
+    # Flatten to 1D for easy counting
+    pred_bin_flat = pred_bin.view(-1)
+    true_bin_flat = true_bin.view(-1)
+
+    # Calculate entries of the confusion matrix
+    tn = ((pred_bin_flat == 0) & (true_bin_flat == 0)).sum().item()
+    fp = ((pred_bin_flat == 1) & (true_bin_flat == 0)).sum().item()
+    fn = ((pred_bin_flat == 0) & (true_bin_flat == 1)).sum().item()
+    tp = ((pred_bin_flat == 1) & (true_bin_flat == 1)).sum().item()
+
+    # Construct confusion matrix
+    cm = torch.tensor([[tn, fp],
+                       [fn, tp]], dtype=torch.long)
+
+    return cm
 
 def dataloaders(batch_size=128, shuffle=True, workers=1):
     augmentations = [
@@ -47,7 +82,6 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
             'confusion_matrices': [],
             'F1_scores': []
         }
-    confusion_matrix = BinaryConfusionMatrix(device=device)
 
     model.to(device)
 
@@ -86,16 +120,15 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 y_pred = model(x)
                 results['validation_losses'][epoch] += criterion(y_pred, y).item()
                 predicted = torch.sigmoid(y_pred) > 0.5
-                confusion_matrix.update(predicted.flatten(), y.flatten())
-                cm = confusion_matrix.compute()
-                cm_list.append(cm)
+                cm = confusion_matrix(predicted, y)
+                cm_list.append(cm.cpu().numpy())
 
         # Save model and results
         torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
         results['training_losses'][epoch] /= len(train_loader)
         results['validation_losses'][epoch] /= len(val_loader)
         cm = sum(cm_list) / len(cm_list)
-        results['confusion_matrices'].append(cm.cpu().numpy().tolist())
+        results['confusion_matrices'].append(cm.tolist())
         results['F1_scores'].append(F1_score(cm))
         print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; Confusion Matrix:\n{cm}\n')
         save_results(results, output_dir, timestamp)
@@ -121,7 +154,7 @@ def save_results(results, output_dir, timestamp):
     plt.title('Training and Validation Losses and F1 Score')
     fig.tight_layout()
     plt.savefig(os.path.join(output_dir, f'{timestamp}_metrics.png'))
-    plt.clf()
+    plt.clf(); plt.close()
         
 def F1_score(cm):
     precision = cm[1,1] / (cm[1,1] + cm[0,1])
@@ -163,7 +196,9 @@ if __name__ == '__main__':
     model = SwinTransformer(**model_args)
 
     # Ratio of positive : Negative samples in train labels
-    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
+    # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
+    criterion = CombinationLoss(dice_params={"smooth": 1e-2, "reduction": "mean"}, 
+                                focal_params={"alpha": 0.25, "gamma": 2.0, "reduction": "mean"})
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")

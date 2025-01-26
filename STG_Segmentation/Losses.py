@@ -63,18 +63,14 @@ class CombinationLoss(nn.Module):
 
 class FocalLoss(nn.Module):
     """
-    Focal Loss for binary segmentation.
-    
+    Binary Focal Loss for segmentation or any 2D binary classification map.
+
     Args:
-        alpha (float): Weighting factor for the rare class (0 < alpha <= 1). 
-                       Often set to 0.25 for the minority class (e.g., foreground).
-        gamma (float): Focusing parameter that adjusts the rate at which easy examples are down-weighted. 
-                       Typically ranges from 1.0 to 5.0. Commonly set to 2.0.
-        reduction (str): Specifies the reduction to apply to the output: 
-                         'none' | 'mean' | 'sum'.
-                         'none': no reduction will be applied.
-                         'mean': the sum of the output will be divided by the number of elements in the output.
-                         'sum': the output will be summed.
+        alpha (float): Weight for the positive (foreground) class. 
+                       The negative (background) class gets (1-alpha).
+                       E.g. alpha=0.25 up-weights the positive class.
+        gamma (float): Focusing parameter. Typical default = 2.0
+        reduction (str): 'none' | 'mean' | 'sum'
     """
     def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -82,46 +78,41 @@ class FocalLoss(nn.Module):
         self.gamma = gamma
         self.reduction = reduction
 
-    def forward(self, inputs, targets):
+    def forward(self, logits, targets):
         """
-        Forward pass for focal loss.
-
         Args:
-            inputs (torch.Tensor): Predicted logits of shape (N, 1, H, W) or (N, H, W).
-                                   - If shape is (N, H, W), targets should be similarly shaped.
-                                   - If shape is (N, 1, H, W), you may need to squeeze the channel dimension to match the targets.
-            targets (torch.Tensor): Binary ground-truth mask of shape (N, H, W) with values in {0,1}.
-
-        Returns:
-            torch.Tensor: Focal loss value.
+            logits (torch.Tensor): shape (B,1,H,W) or (B,H,W)
+                - Raw, un-sigmoided logits for each pixel.
+            targets (torch.Tensor): shape (B,H,W), values in {0,1}.
         """
-        # Ensure inputs and targets are the same shape for element-wise operations
-        # If inputs has an extra channel dimension, we can squeeze it
-        if inputs.dim() > targets.dim():
-            inputs = inputs.squeeze(1)
+        # If logits has a channel-dim of 1, squeeze it to match targets shape
+        if logits.dim() > targets.dim():
+            logits = logits.squeeze(1)  # becomes (B,H,W)
 
-        # Compute binary cross entropy with logits, without reduction (element-wise)
-        bce_loss = F.binary_cross_entropy_with_logits(
-            inputs, 
-            targets.float(),  # ensure targets are float
+        # Compute binary cross entropy (elementwise)
+        bce = F.binary_cross_entropy_with_logits(
+            logits,
+            targets.float(),
             reduction='none'
-        )
-        
-        # For numerical stability, compute the "pt" term, where
-        # pt = p if y=1 and pt = (1-p) otherwise
-        # After BCE, we can interpret exp(-bce_loss) as "pt"
-        pt = torch.exp(-bce_loss)
-        
-        # Focal loss term
-        focal_loss = self.alpha * ((1 - pt) ** self.gamma) * bce_loss
+        )  # shape: (B,H,W)
 
-        # Apply the requested reduction method
+        # pt = exp(-bce) = p if y=1 else (1-p) if y=0
+        pt = torch.exp(-bce)
+
+        # Compute alpha_t:
+        # alpha for positives, (1-alpha) for negatives.
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        # shape: (B,H,W)
+
+        # Focal term = alpha_t * (1-pt)^gamma * BCE
+        focal_term = alpha_t * ((1 - pt) ** self.gamma) * bce
+
         if self.reduction == 'mean':
-            return focal_loss.mean()
+            return focal_term.mean()
         elif self.reduction == 'sum':
-            return focal_loss.sum()
+            return focal_term.sum()
         else:
-            return focal_loss
+            return focal_term
 
 
 
