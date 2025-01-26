@@ -1,0 +1,52 @@
+Epoch 78 F1 score 0.96
+Epoch 100 F1 score 0.85
+
+# Hyperparameters
+    num_epochs = 100
+    batch_size = 4
+    aggregation = 16     # Number of batches to aggregate gradients
+    learning_rate = 1e-4
+    weight_decay = 1e-2
+
+    augmentations = [
+        v2.RandomHorizontalFlip(),
+        v2.RandomVerticalFlip(),
+        v2.RandomCrop(1024, padding=64),
+    ]
+
+    model_args = {
+        'img_size': 1024,
+        'patch_size': 4,
+        'in_chans': 3,
+        'num_classes': 1,
+        'embed_dim': 96,
+        'depths': [2, 2, 4, 2], # note smaller 3rd stage (original 6)
+        'num_heads': [3, 6, 12, 24],
+        'window_size': 8,
+        'mlp_ratio': 4,
+        'qkv_bias': True,
+        'qk_scale': None,model_args = {
+        'img_size': 1024,
+        'patch_size': 4,
+        'in_chans': 3,
+        'num_classes': 1,
+        'embed_dim': 96,
+        'depths': [2, 2, 4, 2], # note smaller 3rd stage (original 6)
+        'num_heads': [3, 6, 12, 24],
+        'window_size': 8,
+        'mlp_ratio': 4,
+        'qkv_bias': True,
+        'qk_scale': None,
+        'drop': 0.2,
+        'drop_path_rate': 0.0,
+        'norm_layer': torch.nn.LayerNorm,
+        'ape': False,
+        'patch_norm': True,
+        'use_checkpoint': False,
+        'fused_window_process': False   # Cannot use with torch compile
+    }
+        'use_checkpoint': False,
+        'fused_window_process': False   # Cannot use with torch compile
+    }
+
+Data: Filtered by >=10 high ploidy cells, tiles resized to 1024x1024, posweight = 4.7
