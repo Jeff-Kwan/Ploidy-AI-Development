@@ -26,21 +26,27 @@ class CombinationLoss(nn.Module):
     """
     def __init__(self,
                  dice_weight=0.5,
-                 focal_weight=0.5,
+                 focal_weight=0.0,
+                 bce_weight=0.5,
                  dice_params=None,
-                 focal_params=None):
+                 focal_params=None,
+                 bce_params=None):
         super(CombinationLoss, self).__init__()
         if dice_params is None:
             dice_params = {}
         if focal_params is None:
             focal_params = {}
+        if bce_params is None:
+            bce_params = {}
 
         self.dice_weight = dice_weight
         self.focal_weight = focal_weight
+        self.bce_weight = bce_weight
         
         # Instantiate the SoftDiceLoss and FocalLoss with user-specified params
         self.dice_loss = SoftDiceLoss(**dice_params)
         self.focal_loss = FocalLoss(**focal_params)
+        self.bce_loss = nn.BCEWithLogitsLoss(**bce_params)
 
     def forward(self, logits, targets):
         """
@@ -54,10 +60,13 @@ class CombinationLoss(nn.Module):
         Returns:
             torch.Tensor: Scalar representing the combined loss.
         """
-        dice_val = self.dice_loss(logits, targets)
-        focal_val = self.focal_loss(logits, targets)
-
-        loss = self.dice_weight * dice_val + self.focal_weight * focal_val
+        loss = torch.tensor(0.0, device=logits.device)
+        if self.dice_weight:
+            loss = loss + self.dice_loss(logits, targets) * self.dice_weight
+        if self.focal_weight:
+            loss = loss + self.focal_loss(logits, targets) * self.focal_weight
+        if self.bce_weight:
+            loss = loss + self.bce_loss(logits, targets) * self.bce_weight
         return loss
 
 

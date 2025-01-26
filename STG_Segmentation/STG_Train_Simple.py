@@ -7,12 +7,14 @@ import os
 import datetime
 import json
 import matplotlib.pyplot as plt
+import random
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from Model.Classification.Swin_TransformerV2_Seg import SwinTransformerV2 as SwinTransformer
 from STG_Segmentation.STG_DataLoader import load_stg_ovary_data
 from Losses import CombinationLoss
+from STG_Results import get_image_mask_pred
 
 def confusion_matrix(y_pred: torch.Tensor,
                          y_true: torch.Tensor,
@@ -65,7 +67,7 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
     return train_loader, val_loader
 
 
-def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer):
+def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer, scheduler):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Output directory
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -109,7 +111,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
-                break
+        scheduler.step()
 
         model.eval()
         cm_list = []
@@ -132,6 +134,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
         results['F1_scores'].append(F1_score(cm))
         print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; Confusion Matrix:\n{cm}\n')
         save_results(results, output_dir, timestamp)
+        save_examples(model, val_loader, output_dir, device, results=5)
 
 
 def save_results(results, output_dir, timestamp):
@@ -157,16 +160,51 @@ def save_results(results, output_dir, timestamp):
     plt.clf(); plt.close()
         
 def F1_score(cm):
-    precision = cm[1,1] / (cm[1,1] + cm[0,1])
-    recall = cm[1,1] / (cm[1,1] + cm[1,0])
-    return 2 * precision * recall / (precision + recall)
+    precision = cm[1,1] / (cm[1,1] + cm[0,1] + 1e-8)
+    recall = cm[1,1] / (cm[1,1] + cm[1,0] + 1e-8)
+    return 2 * precision * recall / (precision + recall + 1e-8)
+
+def save_examples(model, val_loader, path, device, results=5):
+    '''Run model on 5 random val images, compare results horizontally, stack 5 examples vertically'''
+    random_indices = random.sample(range(len(val_loader.dataset)), results)
+    fig, axes = plt.subplots(results, 3, figsize=(15, 25))
+
+    for i, idx in enumerate(random_indices):
+        image, mask = val_loader.dataset[idx]
+        image = image.unsqueeze(0).to(device)
+        with torch.inference_mode():
+            output = model(image)
+
+        image_pil, predicted_pil, overlay_pil = get_image_mask_pred(image, mask, output)
+
+        # Original image
+        axes[i, 0].imshow(image_pil, cmap='gray')
+        axes[i, 0].set_title('Original Image', fontsize=24)
+        axes[i, 0].axis('off')
+        
+        # Predicted mask prediction as grescale
+        axes[i, 1].imshow(predicted_pil, cmap='gray')
+        axes[i, 1].set_title('Predicted Probabilities', fontsize=24)
+        axes[i, 1].axis('off')
+        
+        # Overlay true mask on predicted mask with different colors for matches and mismatches
+        axes[i, 2].imshow(overlay_pil)
+        axes[i, 2].set_title('Overlay (G:T, Y:FN, R:FP)', fontsize=24)
+        axes[i, 2].axis('off')
+
+    plt.suptitle(f'Swin Transformer Results - 5 Random Validation Images', fontsize=30)
+    plt.tight_layout()
+    plt.savefig(os.path.join(path, f'Swin-STG-Results.png'))        # Save the results
+    plt.close(fig) 
+
 
 if __name__ == '__main__':
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Hyperparameters
     num_epochs = 100
     batch_size = 2
     aggregation = 16     # Number of batches to aggregate gradients
-    learning_rate = 1e-4
+    learning_rate = 2e-3
     weight_decay = 1e-2
     
     # Load data
@@ -197,12 +235,14 @@ if __name__ == '__main__':
 
     # Ratio of positive : Negative samples in train labels
     # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
-    criterion = CombinationLoss(dice_params={"smooth": 1e-2, "reduction": "mean"}, 
-                                focal_params={"alpha": 0.25, "gamma": 2.0, "reduction": "mean"})
+    criterion = CombinationLoss(dice_weight=0.4, focal_weight=0.0, bce_weight=0.6,
+                                dice_params={"smooth": 1e-6, "reduction": "mean"},
+                                bce_params={"pos_weight":torch.tensor(20.,device=device)})
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs, eta_min=1e-5)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
 
     # Train
-    train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer)
+    train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer, scheduler)
 

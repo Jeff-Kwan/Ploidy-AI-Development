@@ -651,7 +651,11 @@ class ConvDecoder(nn.Module):
             for i in range(layers)
         ])
         self.mergers = nn.ModuleList([
-            nn.Conv2d(num_features // 2**i, num_features // 2**(i+1), kernel_size=3, stride=1, padding=1, bias=None)
+            nn.Sequential(
+            nn.Conv2d(num_features // 2**i, num_features // 2**i, kernel_size=1, stride=1, padding=0, bias=None),
+            nn.GELU(),
+            nn.Conv2d(num_features // 2**i, num_features // 2**(i+1), kernel_size=1, stride=1, padding=0, bias=None),
+            )
             for i in range(layers)
         ])
         self.norms = nn.ModuleList([
