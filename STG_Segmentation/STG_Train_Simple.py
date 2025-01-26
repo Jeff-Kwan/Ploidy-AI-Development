@@ -241,9 +241,9 @@ if __name__ == '__main__':
 
     # Ratio of positive : Negative samples in train labels
     # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
-    criterion = CombinationLoss(dice_weight=0.2, focal_weight=0., bce_weight=0.8,
+    criterion = CombinationLoss(dice_weight=0.2, focal_weight=0.1, bce_weight=0.7,
                                 dice_params={"smooth": 1e-6, "reduction": "mean"},
-                                focal_params={"alpha": 0.25, "gamma": 1.5, "reduction": "mean"},
+                                focal_params={"alpha": 0.25, "gamma": 2.0, "reduction": "mean"},
                                 bce_params={"pos_weight":torch.tensor(100.,device=device)})
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs, eta_min=1e-4)
