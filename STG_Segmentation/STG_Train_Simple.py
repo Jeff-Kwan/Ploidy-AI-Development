@@ -75,8 +75,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 optimizer.zero_grad()
 
         model.eval()
-        all_preds = []
-        all_labels = []
+        cm_list = []
         with torch.inference_mode():
             p_bar = tqdm(enumerate(val_loader), desc=f"Validating", total=len(val_loader))
             for i, (x, y) in p_bar:
@@ -84,10 +83,10 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 y_pred = model(x)
                 results['validation_losses'][epoch] += criterion(y_pred, y).item()
                 predicted = torch.sigmoid(y_pred) > 0.5
-                all_preds.extend(predicted.detach().cpu().numpy())
-                all_labels.extend(y.detach().cpu().numpy())
+                cm = confusion_matrix(y.detach().cpu().numpy().flatten(), predicted.detach().cpu().numpy().flatten(), normalize='all')
+                cm_list.append(cm)
 
-        cm = confusion_matrix(all_labels, all_preds, normalize='all')
+        cm = sum(cm_list) / len(cm_list)
         results['confusion_matrices'].append(cm.tolist())
         results['training_losses'][epoch] /= len(train_loader)
         results['validation_losses'][epoch] /= len(val_loader)
@@ -124,7 +123,7 @@ if __name__ == '__main__':
         'in_chans': 3,
         'out_chans': 1,
         'embed_dim': 96,
-        'depths': [2, 2, 4, 2], # note smaller 3rd stage (original 6)
+        'depths': [2, 2, 6, 2], # note smaller 3rd stage (original 6)
         'num_heads': [3, 6, 12, 24],
         'window_size': 8,
         'mlp_ratio': 4,
@@ -141,7 +140,7 @@ if __name__ == '__main__':
     model = SwinTransformer(**model_args)
 
     # Ratio of positive : Negative samples in train labels
-    criterion = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([[[5.0]]], device=torch.device('cuda')))
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print(f"Initialized Swin Transformer with {sum(p.numel() for p in model.parameters())/1e6}M parameters")
