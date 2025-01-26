@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from mmcv_barebones import Registry
+from ..mmcv_barebones import Registry
 
 def is_method_overridden(method, base_class, derived_class):
     """Check if a method of base class is overridden in derived class.

@@ -12,8 +12,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from Model.Classification.Swin_TransformerV2_Seg import SwinTransformerV2 as SwinTransformer
 from STG_Segmentation.STG_DataLoader import load_stg_ovary_data
-from sklearn.metrics import confusion_matrix
-
+from torcheval.metrics import BinaryConfusionMatrix
 
 
 def dataloaders(batch_size=128, shuffle=True, workers=1):
@@ -32,6 +31,7 @@ def dataloaders(batch_size=128, shuffle=True, workers=1):
 
 
 def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criterion, optimizer):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Output directory
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     now = datetime.datetime.now()
@@ -44,14 +44,16 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
     results = {
             'training_losses': [],
             'validation_losses': [],
-            'confusion_matrices': []
+            'confusion_matrices': [],
+            'F1_scores': []
         }
+    confusion_matrix = BinaryConfusionMatrix(device=device)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
     # Torch compile & matmul precision
     if 'linux' in sys.platform:
+        print("Compiling model...")
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
 
@@ -73,6 +75,7 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
+                break
 
         model.eval()
         cm_list = []
@@ -83,27 +86,47 @@ def train_loop(model, num_epochs, aggregation, train_loader, val_loader, criteri
                 y_pred = model(x)
                 results['validation_losses'][epoch] += criterion(y_pred, y).item()
                 predicted = torch.sigmoid(y_pred) > 0.5
-                cm = confusion_matrix(y.detach().cpu().numpy().flatten(), predicted.detach().cpu().numpy().flatten(), normalize='all')
+                confusion_matrix.update(predicted.flatten(), y.flatten())
+                cm = confusion_matrix.compute()
                 cm_list.append(cm)
 
-        cm = sum(cm_list) / len(cm_list)
-        results['confusion_matrices'].append(cm.tolist())
+        # Save model and results
+        torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
         results['training_losses'][epoch] /= len(train_loader)
         results['validation_losses'][epoch] /= len(val_loader)
+        cm = sum(cm_list) / len(cm_list)
+        results['confusion_matrices'].append(cm.cpu().numpy().tolist())
+        results['F1_scores'].append(F1_score(cm))
         print(f'\nEpoch {epoch+1} - Validation Loss {results['validation_losses'][epoch]}; Confusion Matrix:\n{cm}\n')
+        save_results(results, output_dir, timestamp)
 
-        # Save the model & losses with performance
-        torch.save(model.state_dict(), os.path.join(output_dir, f'{timestamp}_Swin.pth'))
-        with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
-            json.dump(results, f, indent=4)
-        plt.plot(results['training_losses'], label='Training Loss')
-        plt.plot(results['validation_losses'], label='Validation Loss')
-        plt.legend()
-        plt.title('Training and Validation Losses')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f'{timestamp}_losses.png'))
-        plt.clf()
+
+def save_results(results, output_dir, timestamp):
+    # Results JSON
+    with open(os.path.join(output_dir, f'{timestamp}_results.json'), 'w') as f:
+        json.dump(results, f, indent=4)
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Loss', color='tab:blue')
+    ax1.plot(results['training_losses'], label='Training Loss', color='tab:blue')
+    ax1.plot(results['validation_losses'], label='Validation Loss', color='tab:orange')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('F1 Score', color='tab:green')
+    ax2.plot(results['F1_scores'], label='F1 Score', color='tab:green')
+    ax2.tick_params(axis='y', labelcolor='tab:green')
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines + lines2, labels + labels2, loc='lower left')
+    plt.title('Training and Validation Losses and F1 Score')
+    fig.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'{timestamp}_metrics.png'))
+    plt.clf()
         
+def F1_score(cm):
+    precision = cm[1,1] / (cm[1,1] + cm[0,1])
+    recall = cm[1,1] / (cm[1,1] + cm[1,0])
+    return 2 * precision * recall / (precision + recall)
 
 if __name__ == '__main__':
     # Hyperparameters
